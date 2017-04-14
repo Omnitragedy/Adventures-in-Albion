@@ -1,0 +1,19 @@
+
+Hero_and_Enemies.png
+format: RGBA8888
+filter: Nearest,Nearest
+repeat: none
+GruntSprites
+  rotate: false
+  xy: 835, 24
+  size: 807, 1327
+  orig: 832, 1344
+  offset: 12, 1
+  index: 1
+HeroSprites
+  rotate: false
+  xy: 1, 1
+  size: 832, 1350
+  orig: 832, 1350
+  offset: 0, 0
+  index: 0
