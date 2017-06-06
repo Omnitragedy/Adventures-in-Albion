@@ -22,19 +22,16 @@ import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.BodyDef;
-import com.badlogic.gdx.physics.box2d.Box2DDebugRenderer;
-import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.FixtureDef;
 import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.physics.box2d.World;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
-import com.mygdx.Sprites.Enemies.Grunt;
-import com.mygdx.Sprites.Hero;
+import com.mygdx.Sprites.Characters.Enemies.Grunt;
+import com.mygdx.Sprites.Characters.Hero.Hero;
 import com.mygdx.Sprites.State;
-import com.mygdx.Sprites.TileObjects.Barrel;
 import com.mygdx.game.RPGGame;
-import com.mygdx.game.Scenes.StatusBar;
+import com.mygdx.game.WorldContactListener;
 import java.util.ArrayList;
 
 /**
@@ -51,20 +48,26 @@ public class PlayScreen implements Screen {
     private Viewport gamePort;
     private StatusBar status;
     
-    //Vars to handle the Tiled Map
+    //timers based off of the built-in step timer
+    private double playtimeLeftTimer;   //used to check how much time is left
+    
+    //Vars to handle the Tile Map
     private TmxMapLoader maploader;
     private TiledMap map;
     private OrthogonalTiledMapRenderer renderer;
     
     //Box2d variables for handling physics
     private World world;
-    private Box2DDebugRenderer b2dr;
+//    private Box2DDebugRenderer b2dr;
     
     private Hero player;
-    private ArrayList<Grunt> grunts = new ArrayList<Grunt>();
-    protected Fixture fixture;
+    private ArrayList<Grunt> GruntsList = new ArrayList<Grunt>();
+    private int enemyCount;
     
+    private float timeSinceLastEnemySpawn;
+    private static final int MAX_ENEMIES = 30;
     
+    //Bounds for the range in between what the max speeds for the enemies could be
     private final int lowerBoundSpeed;
     private final int upperBoundSpeed;
     
@@ -74,7 +77,7 @@ public class PlayScreen implements Screen {
      * @param game newly created game object
      */
     public PlayScreen(RPGGame game) {
-        atlas = new TextureAtlas("CharacterSprites/Hero_and_Enemies.atlas");
+        atlas = new TextureAtlas("CharacterSprites/Hero_and_Enemies.pack");
         
         this.game = game;
         
@@ -82,7 +85,7 @@ public class PlayScreen implements Screen {
         gamecam = new OrthographicCamera();
         
         //creates a ViewPort that maintains the aspect ratio of the screen
-        gamePort = new FitViewport(RPGGame.V_WIDTH, RPGGame.V_HEIGHT, gamecam);
+        gamePort = new FitViewport(RPGGame.WIDTH, RPGGame.HEIGHT, gamecam);
         gamePort.apply();
         
         //creates the game's status bar
@@ -97,19 +100,20 @@ public class PlayScreen implements Screen {
         
         world = new World(new Vector2(0, 0),true);
         
-        //shows the outlines of the in-game bodies
-        b2dr = new Box2DDebugRenderer();
-        b2dr.setDrawVelocities(true);
+          //===========IMPORTANT TO DEVELOPMENT PROCESS===========
+//        //shows the outlines of the in-game bodies
+//        b2dr = new Box2DDebugRenderer();
+//        b2dr.setDrawVelocities(true);
         
         BodyDef bdef = new BodyDef();
         PolygonShape shape = new PolygonShape();
         FixtureDef fdef = new FixtureDef();
         Body body;
         
-        //sets the bodies for all of the ledges (layer 5 = ledges)
-        for(MapObject object : map.getLayers().get(5).getObjects().getByType(RectangleMapObject.class)) {
+        //sets the bodies for all of the ledges (layer 6 = ledges)
+        for(MapObject object : map.getLayers().get(6).getObjects().getByType(RectangleMapObject.class)) {
             Rectangle rect = ((RectangleMapObject) object).getRectangle();
-
+			
             bdef.type = BodyDef.BodyType.StaticBody;
             bdef.position.set(rect.getX() + rect.getWidth() / 2, rect.getY() + rect.getHeight() / 2);
 
@@ -121,31 +125,39 @@ public class PlayScreen implements Screen {
             body.createFixture(fdef);
         }
         
-        //sets the bodies for all of the barrels (layer 6 = barrels)
-        for(MapObject object : map.getLayers().get(6).getObjects().getByType(RectangleMapObject.class)){
+        //sets the bodies for all of the barrels (layer 7 = barrels)
+        for(MapObject object : map.getLayers().get(7).getObjects().getByType(RectangleMapObject.class)){
             Rectangle rect = ((RectangleMapObject) object).getRectangle();
             
-            new Barrel(world, map, rect);
+            bdef.type = BodyDef.BodyType.StaticBody;
+            bdef.position.set(rect.getX() + rect.getWidth() / 2, rect.getY() + rect.getHeight() / 2);
+
+            body = world.createBody(bdef);
+
+            shape.setAsBox(rect.getWidth() / 2, rect.getHeight() / 2);
+            fdef.shape = shape;
+            fdef.filter.categoryBits = RPGGame.LEDGE_BIT;
+            body.createFixture(fdef);
         }
         
         //Initialization of Hero object
         player = new Hero(this);
         
         //Initialization of enemy/enemies
-        lowerBoundSpeed = (int) (player.getMaxLinearSpeed() - 25);
-        upperBoundSpeed = (int) (player.getMaxLinearSpeed() - 25);
+        lowerBoundSpeed = (int) (player.getMaxLinearSpeed() - 20);
+        upperBoundSpeed = (int) (player.getMaxLinearSpeed() - 15);
         
-        //creates 3 initial enemies
-        grunts.add(new Grunt(this, rnd(580, 590), rnd(200, 350), rnd(lowerBoundSpeed, upperBoundSpeed)));
-        grunts.add(new Grunt(this, rnd(580, 590), rnd(200, 300), rnd(lowerBoundSpeed, upperBoundSpeed)));
-        grunts.add(new Grunt(this, rnd(580, 590), rnd(150, 200), rnd(lowerBoundSpeed, upperBoundSpeed)));
+        //creates 10 initial enemies
+        addEnemyNearHero(10);
         
         world.setContactListener(new WorldContactListener());
         
-        for(int i = 0; i < grunts.size(); i++) {
-            Pursue<Vector2> purseBehavior = new Pursue<Vector2>(player, grunts.get(i), 10);
-            grunts.get(i).setBehavior(purseBehavior);
+        for(int i = 0; i < GruntsList.size(); i++) {
+            Pursue<Vector2> purseBehavior = new Pursue<Vector2>(player, GruntsList.get(i), 10);
+            GruntsList.get(i).setBehavior(purseBehavior);
         }
+        
+        playtimeLeftTimer = 61;    //sets it so that the game can only go on for 60 seconds
     }
     
         public TextureAtlas getAtlas() {
@@ -163,12 +175,24 @@ public class PlayScreen implements Screen {
      */
     public void handleInput(double deltaT) {
         String playerStateAsString = player.getState().name();
+        
+        if(Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT))
+            player.setRunning();
+        else
+            player.setWalking();
+        
+        if(Gdx.input.isKeyJustPressed(Input.Keys.A))
+            reduceTimeLeft();
+        
+        float playerMaxSpeed = player.getMaxLinearSpeed();
+        
         if(playerStateAsString.length() >= 5) {
             if((player.getState() != State.SPEAR_END) && playerStateAsString.substring(0, 5).equals("SPEAR")) {
                 player.getBody().setLinearVelocity(Vector2.Zero);
-            } else if(player.getState().equals(State.SPEAR_END) && !Gdx.input.isKeyPressed(Input.Keys.SPACE))
-                player.setCanStartAnimation(true);
+            }
+            
             else{
+                
                 //Impulses make the sprite move instantaneously, but forces make it move gradually
 
                 //allows the character sprite to move up and down
@@ -195,7 +219,7 @@ public class PlayScreen implements Screen {
 
             //ensure that the length of the vector is always 55 N when the character moves any direction
             if(!playerStateAsString.substring(0,5).equals("SPEAR"))
-                player.getBody().setLinearVelocity(player.getBody().getLinearVelocity().setLength(55));
+                player.getBody().setLinearVelocity(player.getBody().getLinearVelocity().setLength(playerMaxSpeed));
 
             //if no input is given for a certain direction, the sprite stops moving in that direction
             if((player.getBody().getLinearVelocity().x < 0 && !Gdx.input.isKeyPressed(Input.Keys.LEFT))
@@ -207,7 +231,7 @@ public class PlayScreen implements Screen {
                 player.getBody().setLinearVelocity(new Vector2(player.getBody().getLinearVelocity().x, 0));
             }
         } else if (player.getState().equals(State.DEAD)) {
-            for(Grunt g : grunts) {
+            for(Grunt g : GruntsList) {
                 Evade<Vector2> evade = new Evade<Vector2>(player, g);
                 g.setBehavior(evade);
             }
@@ -215,25 +239,78 @@ public class PlayScreen implements Screen {
     }
     
     /**
+     * Basically the driver for the project's functions to run. All of the rendering
+     * and actions are based on the cycle speed specified in this method. I do
+     * not have to call this method explicitly as the framework calls this method
+     * internally.
+     * 
      * Calls the appropriate methods so that the components of the game all render
      * In addition, if one of the specified inputs in handleInput is used, then
      * that change is effected in the game.
      * @param deltaT 
      */
     public void update(double deltaT) {
+        
+        /*
+        Specifies the length of time step that the update method should render
+        the second and third variables set the time that the program spends on the
+        velocity and position calculations, respectively
+        */
+        world.step(1/60f, 5, 2);
+        
+        timeSinceLastEnemySpawn += deltaT;
+        playtimeLeftTimer -= deltaT;
+        status.updateTimer((int) playtimeLeftTimer);
+        
         //handles any user input first
         handleInput(deltaT);
         
-        //makes the GUI update every sixtieth of a second
-        //the second and third variables set the time that the program spends on the
-        //velocity and position calculations, respectively
-        world.step(1/60f, 10, 5);
-        
         player.update(deltaT);
-        for(Grunt grunt : grunts) {
+        
+        /*
+        Determines how many enemies should be added to the screen. First checks if the number on the screen right now
+        exceeds the preset limit and if at least a certain amount of time has passes since the last spawning
+        */
+        if(GruntsList.size() <= MAX_ENEMIES && timeSinceLastEnemySpawn > 1.5 && !player.isDead()) {     //used to add a variable number of enemies
+            int enemiesToAdd;
+            if(GruntsList.size() < 5) {             //if there are less than 5 enemies on the screen, 
+                enemiesToAdd = 6;
+            } else if (GruntsList.size() < 10) {    //if there are less than 10 enemies on the screen 
+                enemiesToAdd = 3;
+            }
+            else {                                  //if there are any more enemies than 10
+                enemiesToAdd = 1;
+            }
+            
+            addEnemyNearHero(enemiesToAdd);    //adds this many enemies during the cycle
+            for(int i = 0; i < GruntsList.size(); i++) {
+                Pursue<Vector2> purseBehavior = new Pursue<Vector2>(player, GruntsList.get(i), 10);
+                GruntsList.get(i).setBehavior(purseBehavior);
+            }
+            timeSinceLastEnemySpawn = 0;
+        }
+        
+        /*
+        If there are any dead enemies, they are deleted from the ArrayList of enemies.
+        */
+        for(int i = GruntsList.size()-1; i > -1; i--) {
+            if(GruntsList.get(i).getIsDead()) {
+                world.destroyBody(GruntsList.get(i).getBody());
+                GruntsList.remove(i);
+                status.incrementEnemiesKilled(); 
+            }
+        }
+        
+        /*
+        Updates all of the enemies on the screen (ie. renders them all)
+        */
+        for(Grunt grunt : GruntsList) {
             grunt.update(deltaT, player);
         }
         
+        /*
+        Centers the camera so that the player stays at the center of the screen
+        */
         gamecam.position.x = player.getBody().getPosition().x;
         gamecam.position.y = player.getBody().getPosition().y;
         
@@ -241,34 +318,75 @@ public class PlayScreen implements Screen {
         renderer.setView(gamecam);
     }
     
-    @Override
-    //Clears the screen and renders the new screen
-    //this render method rerenders the screen at a set interval, making this the
-    //a big loop that keeps the graphics in sync with the data
+    /**
+     * When called, an enemy is added near the location of the player.
+     * The method will add a new enemy the number of times specified in the "times" argument.
+     */
+    private void addEnemyNearHero(int times) {
+        for(int i = 0; i < times; i++) {
+            GruntsList.add(new Grunt(this, rnd((int) player.getPosition().x - 5, (int) player.getPosition().x + 5),
+                    rnd((int) player.getPosition().y - 5, (int) player.getPosition().y + 5), rnd(lowerBoundSpeed, upperBoundSpeed)));
+        }
+    }
     
-    public void render(float delta) {
-        update(delta);
+    /**
+     * Clears the screen and renders the new screen
+     * this render method re-renders the screen at a set interval, making this the
+     * a big loop that keeps the graphics in sync with the data
+     * @param deltaT 
+     */
+    @Override
+    public void render(float deltaT) {
+        update(deltaT);  //renders the components of the game
         
-        //clears the screen and fills it black
-        Gdx.gl.glClearColor(0, 0, 0, 1);
-        Gdx.gl.glClear(GL30.GL_COLOR_BUFFER_BIT);
+        
+        Gdx.gl.glClearColor(0, 0, 0, 1);            //makes background black
+        Gdx.gl.glClear(GL30.GL_COLOR_BUFFER_BIT);   //clears the previous pixels
+        
+        int[] backgroundLayers = {0,1,2,3,4};       //render these layers first
+        int[] foregroundLayers = {5};               //render this layer after the characters are rendered
         
         //render the game map
-        renderer.render();
+        renderer.render(backgroundLayers);          //render the background ground tiles
         
-        //render box2d debug lines
-        b2dr.render(world, gamecam.combined);
+//        //render box2d debug lines
+//        b2dr.render(world, gamecam.combined);
         
-        game.batch.setProjectionMatrix(gamecam.combined);
+        game.batch.setProjectionMatrix(gamecam.combined);       //spills the sprites for the hero and enemies from the SpriteBatch
         game.batch.begin();
-        player.draw(game.batch);
-        for(Grunt g : grunts) {
-            g.draw(game.batch);
+        for(Grunt g : GruntsList) {
+            g.draw(game.batch);                     //render each enemy individually
         }
+        player.draw(game.batch);                    //render the hero's sprite
         game.batch.end();
         
-        game.batch.setProjectionMatrix(status.stage.getCamera().combined);
-        status.stage.draw();
+        renderer.render(foregroundLayers);         //render the foreground layers at the very end
+        
+        game.batch.setProjectionMatrix(status.getStage().getCamera().combined);
+        status.getStage().draw();
+        
+        if(isGameOver()) {
+            //display the game over screen once it is "game over"
+            game.setScreen(new GameOverScreen(game, status.getEnemiesKilled()));
+        }
+    }
+    
+    private void reduceTimeLeft() {
+        System.out.println("Y0U 4R3 A B4D H4X0R");
+        playtimeLeftTimer = 6;
+    }
+    
+    /**
+     * Checks if the game is over. These are the conditions constituting a game over state
+     * If only one of these conditions is true, it is considered a game over:
+     * <li>The player has no health left.</li>
+     * <li>The timer timer has reached zero</li>
+     * 
+     * This method is meant to be used to check if the game over screen should be displayed
+     * @return whether or not the game has finished
+     */
+    private boolean isGameOver() {
+        return (player.getHP() <= 0 && player.getStateTimer() > 3.5f) || playtimeLeftTimer < 0; //waits 3 seconds befor the game over screen is shown
     }
     
     /**
@@ -289,6 +407,10 @@ public class PlayScreen implements Screen {
         return map;
     }
     
+    /**
+     * Returns the StatusBar GUI
+     * @return StatusBar GUI
+     */
     public StatusBar getStatus() {
         return status;
     }
@@ -303,30 +425,41 @@ public class PlayScreen implements Screen {
 
     @Override
     public void pause() {
-        
     }
 
     @Override
     public void resume() {
-        
     }
 
     @Override
     public void hide() {
-        
     }
 
     @Override
     public void dispose() {
-        map.dispose();
-        renderer.dispose();
-        world.dispose();
-        b2dr.dispose();
-        status.dispose();
     }
     
-    private int rnd(int lb, int ub) {
-        return (int)(Math.random()*(ub+1))+lb;
+    /**
+     * Generates a random number in between the two numbers, the lower and upper bounds
+     * @param lb lower bound
+     * @param ub upper bound
+     * @return a random number in between the lower bound and the upper bound
+     */
+    private int rnd(double lb, double ub) {
+        return (int)((Math.random()*(ub+1))+lb);
     }
     
+    /**
+     * Increments the number of enemies by 1. Should be called when an enemy is added to the screen.
+     */
+    public void incrementEnemyCount() {
+        enemyCount++;
+    }
+    
+    /**
+     * Decrements the number of enemies by 1. Should be called when an enemy is killed.
+     */
+    public void decrementEnemyCount() {
+        enemyCount--;
+    }
 }
