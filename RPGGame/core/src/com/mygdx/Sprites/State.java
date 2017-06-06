@@ -12,5 +12,5 @@ package com.mygdx.Sprites;
 public enum State {
     STANDING, WALK_UP, WALK_DOWN, WALK_LEFT, WALK_RIGHT,
     SPEAR_UP, SPEAR_DOWN, SPEAR_LEFT, SPEAR_RIGHT, SPEAR_END,
-    INVINCIBLE,DEAD
+    DEAD
 }
